@@ -36,7 +36,7 @@ except ImportError:
     import _thread as thread
 
 
-def read_rtt(jlink):
+def read_rtt(jlink: pylink.JLink):
     """Reads the JLink RTT buffer #0 at 10Hz and prints to stdout.
 
     This method is a polling loop against the connected JLink unit. If
@@ -58,7 +58,8 @@ def read_rtt(jlink):
         while jlink.connected():
             terminal_bytes = jlink.rtt_read(0, 1024)
             if terminal_bytes:
-                sys.stdout.write("".join(map(chr, terminal_bytes)))
+                terminal_bytes = list(filter(lambda x: x != 0x0d, terminal_bytes)) # for visibility
+                sys.stdout.write(bytes(terminal_bytes).decode("utf-8", errors='ignore'))
                 sys.stdout.flush()
             time.sleep(0.1)
     except Exception:
@@ -67,7 +68,7 @@ def read_rtt(jlink):
         raise
 
 
-def write_rtt(jlink):
+def write_rtt(jlink: pylink.JLink):
     """Writes kayboard input to JLink RTT buffer #0.
 
     This method is a loop that blocks waiting on stdin. When enter is pressed,
@@ -87,6 +88,7 @@ def write_rtt(jlink):
             bytes = list(bytearray(input(), "utf-8") + b"\x0A\x00")
             bytes_written = jlink.rtt_write(0, bytes)
     except EOFError:
+        # Catch this exception to close silently
         print("EOFError detected, exiting...")
     except Exception:
         print("IO write thread exception, exiting...")
@@ -94,7 +96,7 @@ def write_rtt(jlink):
         raise
 
 
-def main(target_device, block_address=None):
+def main(target_device: str, block_address=None):
     """Creates an interactive terminal to the target via RTT.
 
     The main loop opens a connection to the JLink, and then connects
@@ -115,34 +117,10 @@ def main(target_device, block_address=None):
       JLinkException on error.
     """
     jlink = pylink.JLink()
-    print("connecting to JLink...")
     jlink.open()
-    print("connecting to %s..." % target_device)
     jlink.set_tif(pylink.enums.JLinkInterfaces.SWD)
     jlink.connect(target_device)
-    print("connected, starting RTT...")
     jlink.rtt_start(block_address)
-
-    while True:
-        try:
-            num_up = jlink.rtt_get_num_up_buffers()
-            num_down = jlink.rtt_get_num_down_buffers()
-            print("RTT started, %d up bufs, %d down bufs." % (num_up, num_down))
-            break
-        except pylink.errors.JLinkRTTException:
-            time.sleep(0.1)
-
-    print("up channels:")
-    for buf_index in range(jlink.rtt_get_num_up_buffers()):
-        buf = jlink.rtt_get_buf_descriptor(buf_index, True)
-        print("    %d: name = %r, size = %d bytes, flags = %d" % (buf.BufferIndex, buf.name,
-                                                                  buf.SizeOfBuffer, buf.Flags))
-
-    print("down channels:")
-    for buf_index in range(jlink.rtt_get_num_down_buffers()):
-        buf = jlink.rtt_get_buf_descriptor(buf_index, False)
-        print("    %d: name = %r, size = %d bytes, flags = %d" % (buf.BufferIndex, buf.name,
-                                                                  buf.SizeOfBuffer, buf.Flags))
 
     try:
         thread.start_new_thread(read_rtt, (jlink,))
